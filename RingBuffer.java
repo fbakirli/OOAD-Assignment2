@@ -1,86 +1,59 @@
-import java.util.*;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+/*
+ * Name: Firangiz Bakirli
+ * Project: OOAD Assignment 2 — Ring Buffer (Multiple Readers, Single Writer)
+ * Course: OOAD Spring 2026
+ */
 
 public class RingBuffer<T> {
 
     private final Object[] buffer;
     private final int capacity;
-
-    private long globalSequence = 0;  // total number of writes
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
-    private final Set<Reader<T>> readers = new HashSet<>();
+    private int writeIndex = 0;
+    private long totalWritten = 0;
 
     public RingBuffer(int capacity) {
-        if (capacity <= 0) {
-            throw new IllegalArgumentException("Capacity must be greater than zero.");
-        }
+        if (capacity <= 0)
+            throw new IllegalArgumentException("Capacity must be positive, got: " + capacity);
         this.capacity = capacity;
         this.buffer = new Object[capacity];
     }
 
-    // -----------------------------
-    // WRITE METHOD (Single Writer)
-    // -----------------------------
-    public void write(T item) {
-        if (item == null) {
-            throw new IllegalArgumentException("Cannot write null value.");
-        }
-
-        lock.writeLock().lock();
-        try {
-            long index = globalSequence % capacity;
-            buffer[(int) index] = item;
-            globalSequence++;
-        } finally {
-            lock.writeLock().unlock();
-        }
+    void write(T item) {
+        if (item == null)
+            throw new IllegalArgumentException("Null items are not allowed.");
+        buffer[writeIndex] = item;
+        writeIndex = (writeIndex + 1) % capacity;
+        totalWritten++;
     }
 
-    // -----------------------------
-    // READER REGISTRATION
-    // -----------------------------
-    public Reader<T> createReader() {
-        lock.writeLock().lock();
-        try {
-            Reader<T> reader = new Reader<>(this, globalSequence);
-            readers.add(reader);
-            return reader;
-        } finally {
-            lock.writeLock().unlock();
+    @SuppressWarnings("unchecked")
+    T read(Reader<T> reader) {
+        if (reader.totalRead >= totalWritten)
+            throw new BufferEmptyException("Nothing to read for reader: " + reader.name);
+
+        long available = totalWritten - reader.totalRead;
+        if (available > capacity) {
+            long missed = available - capacity;
+            reader.totalRead += missed;
+            reader.readIndex = writeIndex;
+            throw new SlowReaderException("Reader '" + reader.name + "' missed " + missed + " item(s).");
         }
+
+        T item = (T) buffer[reader.readIndex];
+        reader.readIndex = (reader.readIndex + 1) % capacity;
+        reader.totalRead++;
+        return item;
     }
 
-    protected T read(long sequence) {
-        lock.readLock().lock();
-        try {
-            if (sequence >= globalSequence) {
-                throw new RingBufferException("No new data available.");
-            }
+    int getWriteIndex() { return writeIndex; }
+    long getTotalWritten() { return totalWritten; }
+    public int getCapacity() { return capacity; }
 
-            long oldestValidSequence = Math.max(0, globalSequence - capacity);
+    public Writer<T> createWriter() { return new Writer<>(this); }
 
-            if (sequence < oldestValidSequence) {
-                throw new RingBufferException("Data has been overwritten. Reader is too slow.");
-            }
-
-            int index = (int) (sequence % capacity);
-            return (T) buffer[index];
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    protected long getGlobalSequence() {
-        lock.readLock().lock();
-        try {
-            return globalSequence;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public int getCapacity() {
-        return capacity;
+    public Reader<T> createReader(String name) {
+        if (name == null || name.isBlank())
+            throw new IllegalArgumentException("Reader name can't be null or blank.");
+        return new Reader<>(this, name);
     }
 }

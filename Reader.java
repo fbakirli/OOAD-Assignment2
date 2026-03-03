@@ -1,31 +1,45 @@
+/*
+ * Name: Firangiz Bakirli
+ * Project: OOAD Assignment 2 — Ring Buffer (Multiple Readers, Single Writer)
+ * Course: OOAD Spring 2026
+ */
+
+import java.util.ArrayList;
+import java.util.List;
+
 public class Reader<T> {
 
-    private final RingBuffer<T> buffer;
-    private long readSequence;
+    private final RingBuffer<T> ringBuffer;
+    final String name;
+    int readIndex;
+    long totalRead;
 
-    protected Reader(RingBuffer<T> buffer, long startSequence) {
-        this.buffer = buffer;
-        this.readSequence = startSequence;
+    Reader(RingBuffer<T> ringBuffer, String name) {
+        this.ringBuffer = ringBuffer;
+        this.name = name;
+        this.readIndex = ringBuffer.getWriteIndex();
+        this.totalRead = ringBuffer.getTotalWritten();
     }
 
     public T read() {
-        try {
-            T data = buffer.read(readSequence);
-            readSequence++;
-            return data;
-        } catch (RingBufferException ex) {
-            handleMissedData();
-            throw ex;
+        return ringBuffer.read(this);
+    }
+
+    public List<T> readAll() {
+        List<T> results = new ArrayList<>();
+        while (true) {
+            try {
+                results.add(read());
+            } catch (BufferEmptyException e) {
+                break;
+            }
         }
+        return results;
     }
 
-    private void handleMissedData() {
-        long currentGlobal = buffer.getGlobalSequence();
-        long minValid = Math.max(0, currentGlobal - buffer.getCapacity());
-        readSequence = minValid;
+    public boolean hasNext() {
+        return totalRead < ringBuffer.getTotalWritten();
     }
 
-    public long getReadSequence() {
-        return readSequence;
-    }
+    public String getName() { return name; }
 }
